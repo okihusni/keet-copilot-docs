@@ -1,98 +1,84 @@
-# Keet Interview Copilot — Next Task
+# Keet Copilot — Next Task
 
-Last updated: 2026-11-13
+_Last updated: 2026-11-14_
 
-## Active Task: Complete the First Build Baseline
+## Current task
 
-Objective: validate the original Keet project after dependency installation without modifying source code or audio configuration.
+**Review the latest Claude Step 1 lifeline-pipe proposal against the actual local repository. Do not implement yet.**
 
-### Step 1 — Inspect dependency audit findings
+Local repository: `~/keet-copilot`
 
-Run:
+Expected branch at the last checkpoint: `chore/electron45-vite8-migration`
 
-npm audit
+## Inputs for the implementation agent
 
-Review:
-- Which packages are affected?
-- Are findings direct or transitive?
-- Are they production or development dependencies?
-- Are non-breaking fixes available?
-- Does the critical finding affect runtime code or development tooling?
+1. Read all four files in this documentation repository:
+   - `PROJECT_CONTEXT.md`
+   - `TECHNICAL_DECISIONS.md`
+   - `PROJECT_STATUS.md`
+   - `NEXT_TASK.md`
+2. Read Claude's latest Step 1 proposal (the lifeline-pipe version supplied by the project owner).
+3. Inspect the actual local repository and current Git working tree.
 
-Do not run npm audit fix or npm audit fix --force yet.
+The latest Claude proposal must be supplied as an attachment or copied into the Antigravity conversation. It is not automatically available merely because this documentation references it.
 
-### Step 2 — Run TypeScript checks
+## Instructions to Gemini / Antigravity
 
-Run:
+- Perform a read-only audit first.
+- Confirm which documentation and proposal files were actually accessed.
+- Inspect the actual source code; do not assume Claude's snippets match the current repository.
+- Preserve valid decisions and existing uncommitted migration changes.
+- Do not redesign the architecture without explaining why.
+- Do not edit files, install packages, commit, reset, or discard changes during this audit.
 
-npm run typecheck
+### Review checklist
 
-Capture the full output if it fails. Do not edit source code during baseline validation.
+1. Is the helper command and shell script correct for Ubuntu's `/bin/sh`?
+2. Does the lifeline pipe have exactly the intended writer ownership? Can any descendant inherit a writer and prevent EOF?
+3. Does the watcher (`cat`) reliably exit when:
+   - Electron closes the lifeline normally?
+   - `parec` exits unexpectedly?
+   - The helper receives SIGTERM?
+   - The helper receives SIGKILL?
+4. Can the watcher or `cat` remain orphaned or blocked?
+5. Can `parec` survive if the helper is independently killed?
+6. Is the process group identity strong enough? Require boot ID, helper PID/start time, process group, session, and command-line checks before signalling.
+7. Are `/proc` permission errors handled conservatively? EACCES/EPERM must not be interpreted as proof that a process is absent.
+8. Are process-group scans race-safe enough to avoid signalling unrelated processes after PID/PGID reuse?
+9. Are recovery-file create/update/delete operations safe under interruption?
+10. Are legacy records (`source`, `volumes`, `muted`) restored safely?
+11. Is the monitor restored only after all capture processes are confirmed gone?
+12. Does shutdown retain recovery information when cleanup is incomplete?
+13. Are renderer HMR cleanup and idle-silence flush explicitly deferred to Step 2?
 
-### Step 3 — Build the application
+## Required audit output
 
-Run:
+Provide:
 
-npm run build
+- Actual Git branch and `git status --short`.
+- Exact files inspected.
+- Summary of Claude's proposed design.
+- Which parts are sound and should be retained.
+- Specific defects or unverified assumptions, with file/line references.
+- A minimal, incremental implementation plan.
+- Commands/tests required after implementation, but do not run crash tests yet.
 
-Note: this runs electron-vite build.
+## Approval gate
 
-The Linux packaging script is npm run package:linux. Do not package yet unless separately approved.
+Wait for explicit approval from the project owner before editing source files.
 
-### Step 4 — Start development mode
+After approval, implement only the agreed Step 1 scope. Do not proceed to renderer Step 2 until:
+- Step 1 typecheck passes.
+- Relevant start/duplicate-start/stop/shutdown/reload tests pass.
+- Crash recovery has been validated safely.
+- The actual diff has been independently reviewed.
 
-Run:
+## Review handoff
 
-npm run dev
-
-Verify:
-- The Electron window opens.
-- The renderer loads.
-- The terminal has no blocking runtime errors.
-- The window closes normally.
-
-Stop the process with Ctrl+C after testing.
-
-### Step 5 — Record resource usage
-
-Use Ubuntu System Monitor or htop.
-
-Record:
-- Idle CPU after the app settles.
-- Approximate RAM usage.
-- CPU/RAM during basic UI interaction.
-- Whether other applications were running.
-
-Do not invent or assume performance targets.
-
-## Do Not Do Yet
-
-- Do not modify Keet source code.
-- Do not integrate Gemini or other providers.
-- Do not add API keys.
-- Do not change PipeWire/PulseAudio settings.
-- Do not create virtual sinks or loopbacks.
-- Do not apply forced dependency upgrades.
-- Do not implement mechanisms to evade interview monitoring.
-
-## Definition of Done
-
-- npm audit findings captured and classified.
-- TypeScript check result recorded.
-- Build result recorded.
-- Development startup result recorded.
-- Initial CPU/RAM observations recorded.
-- PROJECT_STATUS.md updated.
-
-## Instructions for AI Collaborators
-
-Before proposing code changes, read:
-
-1. PROJECT_CONTEXT.md
-2. TECHNICAL_DECISIONS.md
-3. PROJECT_STATUS.md
-4. NEXT_TASK.md
-
-Only propose actions within the active task.
-
-Clearly distinguish observed facts from assumptions. Never claim to have inspected local files without actual access. Ask for approval before source-code or audio-configuration changes.
+After any implementation:
+1. Do not commit.
+2. Produce complete diffs, including new files.
+3. List commands executed and actual outputs.
+4. List modified/added/deleted files.
+5. State known limitations and untested paths.
+6. Wait for ChatGPT review and owner approval.

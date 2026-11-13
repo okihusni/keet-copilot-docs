@@ -1,110 +1,140 @@
-# Keet Interview Copilot — Technical Decisions
+# Keet Copilot — Technical Decisions
 
-Last updated: 2026-11-13
+_Last updated: 2026-11-14_
 
-This document records approved decisions and unresolved questions.
-Proposals are not approved decisions until explicitly accepted.
+This document separates established decisions from proposals that still require review.
 
-## 1. Approved Decisions
+## Status vocabulary
 
-| ID | Topic | Decision |
+- **Verified:** directly observed in source code or validated on the user's machine.
+- **Approved:** accepted project direction.
+- **Proposed — pending review:** design proposal not yet approved or implemented.
+- **Open:** requires investigation or a decision.
+
+## 1. Toolchain and repository
+
+| Item | Status | Decision / evidence |
 |---|---|---|
-| TD-001 | Foundation | Evaluate upstream Keet before considering a rewrite. |
-| TD-002 | Source changes | Do not modify source before baseline validation. |
-| TD-003 | Runtime | Follow repository Node requirement: >=20. |
-| TD-004 | Dependencies | Use npm ci because package-lock.json exists. |
-| TD-005 | Inference | Prefer cloud inference on current hardware. |
-| TD-006 | Audio | Inspect PipeWire topology before changing audio routing. |
-| TD-007 | Rollback | Audio changes must be reversible and documented. |
-| TD-008 | Screen sharing | Do not rely on hiding the app from screen capture. |
-| TD-009 | Answer grounding | Answers must be based on verified user information. |
-| TD-010 | API security | Never expose API keys in renderer code or Git. |
+| Local source repo | Verified | `~/keet-copilot` |
+| Active branch | Last known | `chore/electron45-vite8-migration` |
+| Electron | Verified | 45.3.2 installed |
+| electron-builder | Verified | 26.18.1 installed |
+| electron-vite | Verified | 6.0.0 installed |
+| Vite | Verified | 8.3.8 installed |
+| @vitejs/plugin-react | Verified | 6.3.0 installed |
+| TypeScript | Verified | strict mode |
+| `npm run typecheck` | Previously passed | Passed after toolchain upgrade |
+| `npm run build` | Previously passed | Passed after toolchain upgrade |
 
-## 2. Verified Repository Facts
+The migration changes in `package.json` and `package-lock.json` were uncommitted at the last recorded checkpoint. Preserve them. Do not reset, overwrite, or discard unrelated changes.
 
-From the checked-out package.json:
+A safe dependency audit update was committed as `716bc0d chore: apply safe dependency security updates`. The migration branch was created from `main`.
 
-- Package: keet
-- Version: 0.1.0
-- Node requirement: >=20
-- Electron: ^33.2.1
-- electron-vite: ^2.3.0
-- React: ^18.3.1
-- TypeScript: ^5.7.2
+## 2. Linux system audio capture
 
-Available scripts:
+### 2.1 Capture source
 
-- npm run dev
-- npm run build
-- npm run preview
-- npm run typecheck
-- npm run lint
-- npm run package
-- npm run package:linux
+**Approved direction:** use `parec` to capture the default sink's monitor source on Linux.
 
-The package-lock.json file exists.
+Command previously validated:
 
-Note: declared dependency ranges do not necessarily represent exact installed versions. Inspect the lockfile or npm ls when exact versions matter.
+```bash
+parec --device=alsa_output.pci-0000_05_00.6.analog-stereo.monitor \
+  --raw --format=s16le --rate=48000 --channels=2
+```
 
-## 3. Architecture Options — Not Yet Finalized
+Implementation must dynamically discover the current default sink and monitor source using `pactl`; the example device name is not a permanent constant.
 
-### Audio capture
+### 2.2 Volume and mute handling
 
-- Inspect the existing implementation first.
-- Test system audio and microphone independently.
-- Confirm that meeting audio remains audible while capture is active.
-- Understand the existing PipeWire topology before creating virtual sinks.
-- Test device switching, suspend/resume, echo, and feedback.
+**Approved requirements:**
 
-### Speech-to-text
+1. Read and save the monitor source's exact per-channel volume values and mute state before modifying it.
+2. Persist recovery information before changing the monitor.
+3. Temporarily set the monitor source volume to 100% and unmute only if required.
+4. Do not change the physical output sink volume.
+5. Stop and confirm capture processes are gone before restoring the original monitor state.
+6. Restore and read back the original volume and mute state.
+7. Delete the recovery record only after verified restoration.
+8. Never overwrite an unresolved recovery record.
 
-Compare:
-1. A genuine streaming/live transcription API.
-2. A cloud batch/chunked transcription API as fallback.
+The user's historical monitor volume was 13% and physical sink volume was 9%. Do not change these values without explicit permission.
 
-Verify model identifiers, regional availability, audio formats, session limits, reconnect behavior, latency, quotas, pricing, and data terms.
+### 2.3 Crash recovery
 
-Do not assume an AI-suggested model ID is real or currently available without checking official documentation.
+**Approved requirements:**
 
-### Answer generation
+- Preserve a durable recovery record containing the original monitor source, per-channel volume values, and mute state.
+- A failed or unverifiable restoration keeps the record and blocks new capture.
+- If the original monitor source is unavailable, keep the record and explain the problem. Do not silently delete it.
+- Process identity must be verified before sending signals. Never signal a process solely because a PID or process-group ID matches.
+- Treat inaccessible process metadata conservatively; inability to inspect a process is not proof that no capture process remains.
+- Do not restore the monitor while a capture process may still be active.
 
-- Use a separate provider abstraction.
-- Generate concise, natural answers.
-- Ground suggestions in retrieved user information.
-- Return uncertainty or missing evidence instead of fabricating facts.
-- Consider structured output and streaming UI updates.
+### 2.4 Lifeline-pipe helper
 
-### Knowledge retrieval
+**Proposed — pending review; not approved or implemented.**
 
-- Start with local document ingestion.
-- Retrieve only relevant excerpts.
-- Keep original personal documents local.
-- Maintain evidence references for answer verification.
+Claude's latest proposal uses a POSIX shell helper around `parec`:
 
-### Security
+- Electron spawns `/bin/sh` in a detached session/process group.
+- The helper starts `parec`.
+- A watcher blocks reading from a lifeline pipe whose writer is held by Electron.
+- When Electron dies, the pipe closes; the watcher sees EOF and terminates `parec`.
+- The helper's process group is persisted for recovery.
+- Recovery scans `/proc` for processes in the expected group/session and checks command-line identity.
+- The proposal supports older recovery records without `bootId` or process identity.
 
-- Keep API keys in the Electron main process or OS-backed secure storage.
-- Validate IPC payloads.
-- Restrict exposed preload APIs.
-- Avoid logging sensitive transcripts or credentials.
-- Review dependency vulnerabilities before upgrading packages.
+The design is promising but must not be treated as proven. The following issues remain open:
 
-## 4. Open Questions
+1. **Helper process identity:** persist and validate the helper's process start time in addition to boot ID and group ID. Verify process group, session, command line, and process start time before signalling.
+2. **Unreadable `/proc` entries:** do not ignore `EACCES`/`EPERM` if doing so could cause recovery to falsely conclude that no capture process remains. Fail conservatively.
+3. **Watcher lifecycle:** prove that the watcher subshell and its `cat` child cannot remain blocked or orphaned when `parec` exits unexpectedly, the helper receives SIGTERM, the helper receives SIGKILL, or Electron closes the lifeline.
+4. **Descriptor inheritance:** verify that no process other than Electron retains a writer for the lifeline. The EOF guarantee depends on this.
+5. **Helper independently killed:** the proposal acknowledges that independently SIGKILLing the helper may leave `parec` alive until recovery. Confirm that recovery can safely discover and terminate all relevant descendants.
+6. **Crash during persistence:** initial record creation uses a temporary file, fsync, and hard link; update uses a temporary file and rename. Confirm temporary-file cleanup and failure behavior against the actual implementation.
+7. **Power loss:** the proposal does not fsync the containing directory after record creation/rename. This limitation is documented and not yet addressed.
 
-1. Which Keet files implement audio capture, VAD, transcription, and answer generation?
-2. Does the original app run on Ubuntu GNOME X11?
-3. Does the current implementation capture system audio, microphone audio, or both?
-4. Which cloud STT provider best balances accuracy, latency, privacy, and cost?
-5. Which answer-generation model is appropriate?
-6. What are the measured CPU, RAM, and end-to-end latency baselines?
-7. What consent and data-retention controls should be implemented?
+Do not apply the proposal until these concerns have been reviewed against the actual repository and shell behavior.
 
-## 5. Change Control
+### 2.5 Legacy recovery records
 
-Before implementation, every proposed architectural change must include:
+**Approved requirement:** accept the previous record schema containing only `source`, `volumes`, and `muted`. If no reliable process identity exists, do not attempt to signal a process based on guessed identity. Restore saved audio state only when the source exists and read-back verification succeeds. Keep the record on failure.
 
-1. Problem and supporting evidence.
-2. Alternatives and trade-offs.
-3. Security, privacy, cost, and maintenance implications.
-4. Test plan and rollback strategy.
-5. Explicit user approval.
+## 3. Renderer audio and silence handling
+
+**Approved requirements:**
+
+- Integrate the main-process system audio stream into `AudioEngine` without breaking the microphone channel.
+- Preserve speaker labels: `"you"` for microphone and `"them"` for interviewer/system audio.
+- Keep the existing 16 kHz mono downstream STT contract.
+- Add a wall-clock silence timer so utterance flushing does not depend solely on receiving another audio frame.
+- Ensure renderer-side cleanup handles module-level HMR / React Fast Refresh; `did-navigate` alone is insufficient.
+
+**Not yet implemented:** renderer Step 2, including `audio.ts`, `audioUtils.ts`, and HMR-safe stop handling.
+
+## 4. AI and answer generation
+
+- Suggestions must be grounded in the user's real CV, job description, experience, and technical notes.
+- Never fabricate skills, work history, or domain experience.
+- Prefer concise, natural spoken answers appropriate to approximately B1 English.
+- Cloud AI is preferred by default over local model inference on the target hardware.
+
+## 5. Development workflow decision
+
+**Approved workflow:**
+
+1. Keep existing project documentation as the shared source of truth.
+2. Claude may research and author proposals.
+3. Gemini/Antigravity inspects the actual local repository and implements only approved, bounded tasks.
+4. ChatGPT independently reviews proposals, diffs, test output, and unresolved risks.
+5. The project owner approves implementation and testing.
+6. Update `PROJECT_STATUS.md`, `TECHNICAL_DECISIONS.md`, and `NEXT_TASK.md` after each meaningful milestone.
+
+No implementation agent should commit changes without explicit approval. Do not let an agent reset or discard existing user changes.
+
+## 6. References
+
+- Upstream Keet: https://github.com/eeshsaxena/keet
+- Shared project docs: https://github.com/okihusni/keet-copilot-docs
+- Local source: `~/keet-copilot`
