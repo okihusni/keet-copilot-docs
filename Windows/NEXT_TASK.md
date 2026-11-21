@@ -81,3 +81,47 @@ Expected implementation files:
 - `tests/gemini-live-stt.test.ts`
 
 Any additional changed file must be explained and justified. No packaging or `Keet.exe` rebuild is authorized.
+
+---
+
+## Queued implementation backlog
+
+### Q-01 — AI E2E Performance, Token Usage & Cost Tracking
+**Status:** Queued / not authorized for implementation  
+**Priority:** After the current Gemini Live STT finalization workstream and its approval gate  
+**Target:** Windows Electron app (`Keet.exe`), with provider-neutral instrumentation where practical
+
+**Objective:** Capture reliable per-request end-to-end latency, model token usage, and estimated API cost, then make the data available for local diagnostics and performance reporting.
+
+**Required metrics**
+- End-to-end response time: start when the user submits/triggers a request; stop when the complete answer is rendered and available in the UI.
+- Time to first token (TTFT), when streaming is supported.
+- Input, output, and total token counts, using provider-reported usage metadata whenever available.
+- Estimated per-request API cost, calculated from the actual provider/model and a traceable pricing configuration.
+- Provider, model, request/correlation ID, timestamps, completion status, and error/cancellation outcome.
+
+**Reporting**
+- Aggregate average, median, P95, and maximum E2E response time.
+- Aggregate token consumption and estimated cost by provider/model and over a selected period.
+- Keep STT/transcription duration and LLM generation duration separate when both can be measured reliably; do not confuse either with the full E2E measurement.
+
+**Implementation constraints**
+- Prefer local structured logging/storage (JSONL or SQLite); do not introduce a paid monitoring service.
+- Use a monotonic timer for elapsed durations.
+- Treat unavailable token usage or pricing as unknown/null; never fabricate counts or costs.
+- Label cost as an estimate and retain the pricing source/version or effective date used for calculation.
+- Avoid logging interview transcript content or unnecessary personal data.
+- Add offline unit tests with mocked provider responses and usage metadata. No live/paid API calls without explicit owner approval.
+- Do not package/rebuild `Keet.exe` until separately approved.
+
+**Acceptance criteria**
+1. E2E timing measures the complete user-visible request lifecycle, including rendering completion.
+2. TTFT is recorded where streaming supports it; otherwise it is explicitly unavailable.
+3. Token counts use provider usage metadata, with missing values represented as unknown.
+4. Cost calculations are reproducible from provider, model, token categories, and pricing configuration.
+5. Logs correlate timing, usage, and cost for the same request.
+6. Aggregates include average, median, P95, and maximum, with clear sample counts.
+7. Offline tests cover success, failure, cancellation, missing usage metadata, and pricing/model changes.
+8. No additional paid services or live API calls are introduced without approval.
+
+**Approval gate:** This is a backlog item only. Do not begin implementation until the current STT workstream is complete and the owner explicitly authorizes Q-01.
